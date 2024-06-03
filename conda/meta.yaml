@@ -1,0 +1,50 @@
+{% set name = "sjup" %}
+{% set version = "2.0.0" %}
+
+package:
+  name: "{{ name|lower }}"
+  version: "{{ version }}"
+
+source:
+  path: ../
+
+build:
+  noarch: python
+  number: 0
+  script: "{{ PYTHON }} -m flit install --deps none"
+
+requirements:
+  host:
+    - flit
+    - attrs
+    - click
+    - click-plugins
+    - python>=3.7
+    - importlib_metadata>=4.6 # [py37]
+  run:
+    - attrs
+    - click
+    - click-plugins
+    - python>=3.7
+    - importlib_metadata>=4.6 # [py37]
+
+test:
+  imports:
+    - sjup
+    - sjup.backends
+    - sjup.plugins
+  commands:
+    - sjup --help
+    - sjup --version
+
+about:
+  home: https://munch-group/sjup
+  summary: Utility for running and accessing JupyterLab on a remote compute cluster
+  doc_url: https://
+  dev_url: https://github.com/munch-group/sjup
+
+extra:
+  recipe-maintainers:
+    - kaspermunch
+
+
