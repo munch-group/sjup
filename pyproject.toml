@@ -17,7 +17,7 @@ classifiers = [
     "Topic :: Utilities",
 ]
 dynamic = ["version", "description"]
-name = "gwf"
+name = "sjup"
 readme = "README.rst"
 requires-python = ">=3.7"
 
@@ -34,27 +34,23 @@ dependencies = [
 dev = ["black", "isort", "nox"]
 
 [project.scripts]
-gwf = "gwf.cli:main"
+sjup = "sjup.cli:main"
 
-[project.entry-points."gwf.plugins"]
-cancel = "gwf.plugins.cancel:cancel"
-clean = "gwf.plugins.clean:clean"
-config = "gwf.plugins.config:config"
-info = "gwf.plugins.info:info"
-logs = "gwf.plugins.logs:logs"
-run = "gwf.plugins.run:run"
-status = "gwf.plugins.status:status"
-touch = "gwf.plugins.touch:touch"
-workers = "gwf.plugins.workers:workers"
+[project.entry-points."sjup.plugins"]
+attach = "sjup.plugins.attach:canattachcel"
+batch = "sjup.plugins.batch:batch"
+close = "sjup.plugins.close:close"
+config = "sjup.plugins.config:config"
+info = "sjup.plugins.info:info"
+serve = "sjup.plugins.serve:serve"
+status = "sjup.plugins.status:status"
 
-[project.entry-points."gwf.backends"]
-local = "gwf.backends.local:setup"
-sge = "gwf.backends.sge:setup"
-slurm = "gwf.backends.slurm:setup"
-lsf = "gwf.backends.lsf:setup"
+[project.entry-points."sjup.backends"]
+local = "sjup.backends.local:setup"
+slurm = "sjup.backends.slurm:setup"
 
 [project.urls]
-Home = "https://gwf.app"
+Home = "https://munch-group.or/software/sjup"
 
 [tool.isort]
 profile = "black"
