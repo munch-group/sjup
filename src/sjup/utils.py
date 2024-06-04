@@ -1,148 +1,137 @@
-# import shutil
-# import subprocess
-
-# from .exceptions import BackendError
-
-
-# def _find_exe(name):
-#     exe = shutil.which(name)
-#     if exe is None:
-#         raise BackendError(
-#             f'Could not find executable "{name}". This backend requires Slurm '
-#             f"to be installed on this host."
-#         )
-#     return exe
-
-
-# def has_exe(name):
-#     return shutil.which(name) is not None
-
-
-# def call(executable_name, *args, input=None):
-#     executable_path = _find_exe(executable_name)
-#     proc = subprocess.Popen(
-#         [executable_path] + list(args),
-#         stdout=subprocess.PIPE,
-#         stderr=subprocess.PIPE,
-#         stdin=subprocess.PIPE,
-#         universal_newlines=True,
-#     )
-#     stdout, stderr = proc.communicate(input)
-
-#     # Some commands, like scancel, do not return a non-zero exit code if they
-#     # fail. The only way to check if they failed is by checking whether an
-#     # error message occurred in standard error, so we check both the return
-#     # code and stderr.
-#     if proc.returncode != 0 or "error:" in stderr:
-#         raise BackendError(stderr)
-#     return stdout
-
-
+import copy
+import importlib
+import logging
 import os
+import os.path
+import re
 import sys
-from subprocess import PIPE, Popen
-import shlex
-import shutil
+import time
+from contextlib import ContextDecorator
+from functools import wraps
+from pathlib import Path
 
-class ExecuteException(Exception):
-    pass
+if sys.version_info < (3, 8):
+    from importlib_metadata import entry_points as _entry_points  # noqa: E401
+else:
+    from importlib.metadata import entry_points as _entry_points  # noqa: F401
 
-def seconds2string(sec):
-    """Convert seconds to slurm time spec.
+import click
 
-    Args:
-        sec (int): Seconds
+from gwf.exceptions import GWFError
 
-    Returns:
-        str: slurm time spec string (days-hours:mins:secs)
-    """
-    days, sec = sec // 86400, sec % 86400
-    hours, sec = sec // 3600, sec % 3600
-    minutes, seconds  = sec // 60, sec % 60
-    return f'{days}-{hours:02}:{minutes:02}:{seconds:02}'
+logger = logging.getLogger(__name__)
 
 
-def human2walltime(d=0, h=0, m=0, s=0):
-    return seconds2string(d * 86400 + h * 3600 + m * 60 + s)
-
-
-def execute(cmd, stdin=None, shell=False, check_failure=True):
-    """Executes a system command line.
-
-    Args:
-        cmd (str): System command.
-        stdin (str, optional): Standard input. Defaults to None.
-        shell (bool, optional): Run command in a shell. Defaults to False.
-
-    Returns:
-        tuple: Two strings holding standard output and standard error respectively.
-    """
-    if shell:
-        process = Popen(cmd, stdin=PIPE, stdout=PIPE, stderr=PIPE, shell=True)
+def entry_points(group):
+    if sys.version_info < (3, 12):
+        return _entry_points()[group]
     else:
-        lst = shlex.split(cmd)
-        lst[0] = shutil.which(lst[0])
-        process = Popen(lst, stdin=PIPE, stdout=PIPE, stderr=PIPE)
-    stdout, stderr = process.communicate(stdin)
-    if check_failure:
-        if process.returncode:
-            raise ExecuteException(f'Command failed: {cmd}\n{stderr.decode()}')
-    return stdout, stderr
+        return _entry_points(group=group)
 
 
-def modpath(p, parent=None, base=None, suffix=None):
-    """Standard modifications on a file path.
-
-    Args:
-        p (str): File path.
-        parent (str, optional): New directory. Defaults to None.
-        base (str, optional): New file base name. Defaults to None.
-        suffix (str, optional): New file suffix. Defaults to None.
-
-    Returns:
-        str: Modified file path.
-    """
-    par, name = os.path.split(p)
-    name_no_suffix, suf = os.path.splitext(name)
-    if type(suffix) is str:
-        suf = suffix
-    if parent is not None:
-        par = parent
-    if base is not None:
-        name_no_suffix = base
-
-    new_path = os.path.join(par, name_no_suffix + suf)
-    if type(suffix) is tuple:
-        assert len(suffix) == 2
-        new_path, nsubs = re.subn(r'{}$'.format(suffix[0]), suffix[1], new_path)
-        assert nsubs == 1, nsubs
-    return new_path
+def is_valid_name(candidate):
+    """Check whether `candidate` is a valid name for a target or workflow."""
+    return re.match(r"^[a-zA-Z_][a-zA-Z0-9._]*$", candidate) is not None
 
 
-def on_windows():
-    """Tests if on Windows.
-
-    Returns:
-        bool: True if on Windows.
-    """
-    return sys.platform == 'win32'
+def chain(*dcts):
+    new = {}
+    for dct in dcts:
+        new.update(dct)
+    return new
 
 
-def str_to_mb(s):
-    """Translate string like 1m or 1g to number of megabytes.
+class timer(ContextDecorator):
+    def __init__(self, msg, logger=None):
+        self.msg = msg
+        self.logger = logger or logging.getLogger(__name__)
 
-    Args:
-        s (str): String specifying memory size (E.g. 4k, 7m og 3g)
+    def __enter__(self):
+        self.start = time.perf_counter()
+        return self
 
-    Returns:
-        float: number of megabytes.
-    """
-    # compute mem in mb
-    scale = s[-1].lower()
-    assert scale in ['k', 'm', 'g']
-    memory_per_cpu_mb = float(s[:-1])
-    if scale == 'g':
-        memory_per_cpu_mb *= 1024
-    if scale == 'k':
-        memory_per_cpu_mb /= 1024.0
-    return memory_per_cpu_mb
+    def __exit__(self, *args):
+        self.end = time.perf_counter()
+        self.duration = self.end - self.start
+        self.logger.debug(self.msg, self.duration)
+
+
+def ensure_dir(path):
+    """Create directory unless it already exists."""
+    os.makedirs(path, exist_ok=True)
+
+
+class ColorFormatter(logging.Formatter):
+    STYLING = {
+        "WARNING": dict(fg="yellow"),
+        "INFO": dict(fg="blue"),
+        "DEBUG": dict(fg="cyan"),
+        "ERROR": dict(fg="red", bold=True),
+        "CRITICAL": dict(fg="magenta", bold=True),
+    }
+
+    def format(self, record):
+        level = record.levelname
+        color_record = copy.copy(record)
+        if record.levelname in self.STYLING:
+            styling = self.STYLING[level]
+            padded_level_name = "{:<10}".format(record.levelname.lower())
+            color_record.levelname = click.style(padded_level_name, **styling)
+            color_record.name = click.style(record.name, **styling)
+            color_record.msg = record.msg
+        return super().format(color_record)
+
+
+def redirect_exception(old_exc, new_exc):
+    """Redirect one exception type to another."""
+
+    def wrapper(func):
+        @wraps(func)
+        def inner_wrapper(*args, **kwargs):
+            try:
+                return func(*args, **kwargs)
+            except old_exc as e:
+                raise new_exc from e
+
+        return inner_wrapper
+
+    return wrapper
+
+
+def ensure_trailing_newline(s):
+    if not s:
+        return "\n"
+    return s if s[-1] == "\n" else s + "\n"
+
+
+def find_workflow(path_spec):
+    path, _, obj = path_spec.partition(":")
+    obj = obj or "gwf"
+
+    path = Path(path)
+    current_dir = Path.cwd()
+    workflow_path = current_dir.joinpath(path)
+    if not path.is_absolute():
+        while True:
+            logger.debug("Looking for workflow file %s in %s", path, current_dir)
+            if workflow_path.exists():
+                break
+            if current_dir == Path(current_dir.anchor):
+                raise FileNotFoundError(f"The file {path} could not be found")
+            current_dir = current_dir.parent
+            workflow_path = current_dir.joinpath(path)
+    return workflow_path, obj
+
+
+def load_workflow(path: Path, obj: str):
+    logger.debug("Loading workflow from %s:%s", path, obj)
+    module_name, _ = os.path.splitext(path.name)
+    sys.path.insert(0, str(path.parent))
+    spec = importlib.util.spec_from_file_location(module_name, path)
+    assert spec is not None, "Could not load workflow file"
+    module = importlib.util.module_from_spec(spec)
+    assert module is not None, "Could not load module from workflow file"
+    spec.loader.exec_module(module)
+    if not hasattr(module, obj):
+        raise GWFError(f"The module '{path.name}' does not have attribute '{obj}'")
+    return getattr(module, obj)
