@@ -17,7 +17,7 @@ else:
 
 import click
 
-from gwf.exceptions import GWFError
+from sjup.exceptions import GWFError
 
 logger = logging.getLogger(__name__)
 
@@ -104,34 +104,34 @@ def ensure_trailing_newline(s):
     return s if s[-1] == "\n" else s + "\n"
 
 
-def find_workflow(path_spec):
-    path, _, obj = path_spec.partition(":")
-    obj = obj or "gwf"
+# def find_workflow(path_spec):
+#     path, _, obj = path_spec.partition(":")
+#     obj = obj or "gwf"
 
-    path = Path(path)
-    current_dir = Path.cwd()
-    workflow_path = current_dir.joinpath(path)
-    if not path.is_absolute():
-        while True:
-            logger.debug("Looking for workflow file %s in %s", path, current_dir)
-            if workflow_path.exists():
-                break
-            if current_dir == Path(current_dir.anchor):
-                raise FileNotFoundError(f"The file {path} could not be found")
-            current_dir = current_dir.parent
-            workflow_path = current_dir.joinpath(path)
-    return workflow_path, obj
+#     path = Path(path)
+#     current_dir = Path.cwd()
+#     workflow_path = current_dir.joinpath(path)
+#     if not path.is_absolute():
+#         while True:
+#             logger.debug("Looking for workflow file %s in %s", path, current_dir)
+#             if workflow_path.exists():
+#                 break
+#             if current_dir == Path(current_dir.anchor):
+#                 raise FileNotFoundError(f"The file {path} could not be found")
+#             current_dir = current_dir.parent
+#             workflow_path = current_dir.joinpath(path)
+#     return workflow_path, obj
 
 
-def load_workflow(path: Path, obj: str):
-    logger.debug("Loading workflow from %s:%s", path, obj)
-    module_name, _ = os.path.splitext(path.name)
-    sys.path.insert(0, str(path.parent))
-    spec = importlib.util.spec_from_file_location(module_name, path)
-    assert spec is not None, "Could not load workflow file"
-    module = importlib.util.module_from_spec(spec)
-    assert module is not None, "Could not load module from workflow file"
-    spec.loader.exec_module(module)
-    if not hasattr(module, obj):
-        raise GWFError(f"The module '{path.name}' does not have attribute '{obj}'")
-    return getattr(module, obj)
+# def load_workflow(path: Path, obj: str):
+#     logger.debug("Loading workflow from %s:%s", path, obj)
+#     module_name, _ = os.path.splitext(path.name)
+#     sys.path.insert(0, str(path.parent))
+#     spec = importlib.util.spec_from_file_location(module_name, path)
+#     assert spec is not None, "Could not load workflow file"
+#     module = importlib.util.module_from_spec(spec)
+#     assert module is not None, "Could not load module from workflow file"
+#     spec.loader.exec_module(module)
+#     if not hasattr(module, obj):
+#         raise GWFError(f"The module '{path.name}' does not have attribute '{obj}'")
+#     return getattr(module, obj)
