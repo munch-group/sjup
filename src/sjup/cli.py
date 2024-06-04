@@ -43,7 +43,7 @@ def configure_logging(level_name):
     return root
 
 
-@with_plugins(entry_points(group="gwf.plugins"))
+@with_plugins(entry_points(group="sjup.plugins"))
 @click.group(context_settings={"obj": {}})
 @click.version_option(version=__version__)
 @click.option("-e", "--environment", default="sjup", help="Conda environment to activate on the cluster.")
